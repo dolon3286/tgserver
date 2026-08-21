@@ -402,7 +402,11 @@
             <span class="pill">IMDb / TMDb re-match</span>
         </div>
 
-        <div class="grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-3">
+        <div class="grid grid-cols-1 lg:grid-cols-[auto_1fr_auto] gap-3">
+            <select id="rescan-target-type" class="field-input">
+                <option value="movie" {% if media_type == 'movie' %}selected{% endif %}>Movie</option>
+                <option value="tv" {% if media_type == 'tv' %}selected{% endif %}>Series</option>
+            </select>
             <input
                 id="rescan-query"
                 type="text"
@@ -955,8 +959,9 @@
         setRescanState('Searching matches...', true);
 
         try {
+            const targetMediaType = document.getElementById('rescan-target-type').value;
             const params = new URLSearchParams({
-                media_type: mediaType,
+                media_type: targetMediaType,
                 query
             });
 
@@ -1041,10 +1046,11 @@
         }
 
         try {
+            const targetMediaType = document.getElementById('rescan-target-type').value;
             const response = await fetch(`/api/media/rescan/apply?tmdb_id=${tmdbId}&db_index=${dbIndex}&media_type=${mediaType}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ selected_id: String(selectedId) })
+                body: JSON.stringify({ selected_id: String(selectedId), target_media_type: targetMediaType })
             });
 
             const data = await response.json().catch(() => ({}));
@@ -1058,9 +1064,10 @@
 
             const newTmdbId = data.redirect_tmdb_id || tmdbId;
             const newDbIndex = data.db_index || dbIndex;
+            const newMediaType = data.media_type || mediaType;
 
             setTimeout(() => {
-                window.location.href = `/media/edit?tmdb_id=${newTmdbId}&db_index=${newDbIndex}&media_type=${mediaType}`;
+                window.location.href = `/media/edit?tmdb_id=${newTmdbId}&db_index=${newDbIndex}&media_type=${newMediaType}`;
             }, 700);
         } catch (error) {
             console.error('Apply rescan failed:', error);
@@ -1840,14 +1847,56 @@
     }
 
     function openAddStream() {
+        document.getElementById('as-modal-title').textContent = '➕ Add Stream';
+        document.getElementById('as-submit').textContent = 'Add Stream';
+        document.getElementById('as-edit-id').value = '';
         ['as-name', 'as-season', 'as-episode', 'as-episode-title', 'as-quality-custom'].forEach(id => {
             const el = document.getElementById(id);
             if (el) el.value = '';
         });
         addStreamResetParts();
+        const partsContainer = document.getElementById('as-parts-container') || document.getElementById('as-parts').parentElement;
+        if (partsContainer) {
+            partsContainer.id = 'as-parts-container';
+            partsContainer.classList.remove('hidden');
+        }
         const q = document.getElementById('as-quality');
         if (q) q.value = '1080p';
         document.getElementById('as-quality-custom')?.classList.add('hidden');
+        document.getElementById('as-resolve-state')?.classList.add('hidden');
+        document.getElementById('add-stream-modal').classList.remove('hidden');
+        document.body.style.overflow = 'hidden';
+    }
+
+    function openEditStream(id, quality, name, season = '', episode = '') {
+        document.getElementById('as-modal-title').textContent = '✏️ Edit Stream';
+        document.getElementById('as-submit').textContent = 'Save Changes';
+        document.getElementById('as-edit-id').value = id;
+        document.getElementById('as-name').value = name || '';
+
+        const q = document.getElementById('as-quality');
+        const options = Array.from(q.options).map(opt => opt.value);
+        if (options.includes(quality)) {
+            q.value = quality;
+            document.getElementById('as-quality-custom')?.classList.add('hidden');
+        } else {
+            q.value = '__custom';
+            document.getElementById('as-quality-custom').value = quality;
+            document.getElementById('as-quality-custom')?.classList.remove('hidden');
+        }
+
+        if (mediaType === 'tv') {
+            document.getElementById('as-season').value = season;
+            document.getElementById('as-episode').value = episode;
+            document.getElementById('as-episode-title').value = '';
+        }
+
+        addStreamResetParts();
+        const partsContainer = document.getElementById('as-parts-container') || document.getElementById('as-parts').parentElement;
+        if (partsContainer) {
+            partsContainer.id = 'as-parts-container';
+            partsContainer.classList.remove('hidden');
+        }
         document.getElementById('as-resolve-state')?.classList.add('hidden');
         document.getElementById('add-stream-modal').classList.remove('hidden');
         document.body.style.overflow = 'hidden';
@@ -1906,9 +1955,10 @@
 
     async function submitAddStream() {
         const btn = document.getElementById('as-submit');
+        const editId = document.getElementById('as-edit-id').value;
         const parts = addStreamCollectParts();
         const quality = addStreamQuality();
-        if (!parts.length) { showErrorMessage('Paste at least one Telegram message link.'); return; }
+        if (!parts.length && !editId) { showErrorMessage('Paste at least one Telegram message link.'); return; }
         if (!quality) { showErrorMessage('Select a quality.'); return; }
 
         const payload = {
@@ -1917,6 +1967,10 @@
             db_index: dbIndex,
             stream: { quality, name: document.getElementById('as-name').value.trim() || undefined, parts }
         };
+
+        if (editId) {
+            payload.edit_id = editId;
+        }
 
         if (mediaType === 'tv') {
             const s = document.getElementById('as-season').value.trim();
@@ -1929,18 +1983,18 @@
 
         btn.disabled = true;
         try {
-            const res = await fetch('/api/media/manual-add', {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
+            const endpoint = editId ? '/api/media/edit-quality' : '/api/media/manual-add';
+            const method = editId ? 'PUT' : 'POST';
+            const res = await fetch(endpoint, {
+                method: method, headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
             });
             const data = await res.json().catch(() => ({}));
             if (!res.ok) throw new Error(data.detail || 'Failed to add stream');
             showSuccessMessage(data.message || 'Stream added successfully.');
             closeAddStream();
-            const goTmdb = data.tmdb_id || tmdbId;
-            const goDb = data.db_index || dbIndex;
             setTimeout(() => {
-                window.location.href = `/media/edit?tmdb_id=${goTmdb}&db_index=${goDb}&media_type=${mediaType}`;
+                window.location.reload();
             }, 700);
         } catch (e) {
             showErrorMessage(e.message || 'Failed to add stream.');

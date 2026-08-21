@@ -996,12 +996,14 @@ async def apply_media_rescan_api(request: Request, tmdb_id: str | int, db_index:
     if not current_doc:
         raise HTTPException(status_code=404, detail="Media not found.")
 
-    if media_type == "movie":
+    target_media_type = body.get("target_media_type", media_type)
+
+    if target_media_type == "movie":
         metadata = await fetch_selected_movie_metadata(selected_id)
-    elif media_type == "tv":
+    elif target_media_type == "tv":
         metadata = await fetch_selected_tv_metadata(selected_id)
     else:
-        raise HTTPException(status_code=400, detail="Invalid media_type.")
+        raise HTTPException(status_code=400, detail="Invalid target media_type.")
 
     if not metadata:
         raise HTTPException(status_code=404, detail="Unable to fetch metadata for selected item.")
@@ -1021,9 +1023,9 @@ async def apply_media_rescan_api(request: Request, tmdb_id: str | int, db_index:
         "message": "Metadata rescanned successfully.",
         "redirect_tmdb_id": updated_doc.get("tmdb_id"),
         "db_index": updated_doc.get("db_index", db_index),
-        "media_type": media_type,
+        "media_type": target_media_type,
         "data": updated_doc,
-}
+    }
 
 
 #----- Manual add: fetch full metadata for a selected TMDB/IMDB title to autofill the form
@@ -1207,6 +1209,35 @@ def _fill_placeholder_metadata(meta: dict) -> None:
 
 
 #----- Manual add: create/append a movie, tv show, season, episode or stream by hand
+async def edit_quality_api(payload: dict) -> dict:
+    media_type = payload.get("media_type")
+    tmdb_id = _require_tmdb_id(payload.get("tmdb_id"))
+    db_index = int(payload.get("db_index", 1))
+    edit_id = payload.get("edit_id")
+    stream = payload.get("stream", {})
+    quality = stream.get("quality")
+    name = stream.get("name", "")
+
+    if media_type not in ("movie", "tv"):
+        raise HTTPException(status_code=400, detail="Invalid media_type.")
+    if not edit_id or not quality:
+        raise HTTPException(status_code=400, detail="edit_id and quality are required.")
+
+    if media_type == "movie":
+        result = await db.edit_movie_quality(tmdb_id, db_index, edit_id, quality, name)
+    else:
+        season = payload.get("season_number")
+        episode = payload.get("episode_number")
+        if season is None or episode is None:
+            raise HTTPException(status_code=400, detail="season_number and episode_number are required for TV.")
+        result = await db.edit_tv_quality(tmdb_id, db_index, season, episode, edit_id, quality, name)
+
+    if result:
+        return {"message": "Quality updated successfully"}
+    else:
+        raise HTTPException(status_code=404, detail="Quality not found or no changes made")
+
+
 async def manual_add_media_api(payload: dict) -> dict:
     media_type = payload.get("media_type")
     if media_type not in ("movie", "tv"):

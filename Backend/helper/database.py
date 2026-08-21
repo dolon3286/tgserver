@@ -2673,6 +2673,10 @@ class Database:
 
         source_id = current_doc["_id"]
 
+        target_media_type = metadata.get("media_type", media_type)
+        target_collection_name = self._collection_for(target_media_type)
+        target_collection = self.dbs[db_key][target_collection_name]
+
         def _pick(key: str):
             new_value = metadata.get(key)
             if new_value in (None, "", [], {}, 0, 0.0, "0"):
@@ -2682,8 +2686,16 @@ class Database:
         new_tmdb_id = int(metadata.get("tmdb_id") or tmdb_id)
         new_imdb_id = _pick("imdb_id")
 
-        if collection_name == "movie":
-            current_doc.update({
+        if target_media_type == "movie":
+            telegram_list = []
+            if collection_name == "movie":
+                telegram_list = current_doc.get("telegram", [])
+            else:
+                for season in current_doc.get("seasons", []):
+                    for episode in season.get("episodes", []):
+                        telegram_list.extend(episode.get("telegram", []))
+
+            new_doc = {
                 "tmdb_id": new_tmdb_id,
                 "imdb_id": new_imdb_id,
                 "title": _pick("title"),
@@ -2697,11 +2709,24 @@ class Database:
                 "cast": _pick("cast"),
                 "runtime": _pick("runtime"),
                 "media_type": "movie",
-                "telegram": current_doc.get("telegram", []),
+                "telegram": telegram_list,
                 "updated_on": datetime.utcnow(),
-            })
+            }
         else:
-            current_doc.update({
+            seasons_list = []
+            if collection_name == "tv":
+                seasons_list = current_doc.get("seasons", [])
+            else:
+                seasons_list = [{
+                    "season_number": 1,
+                    "episodes": [{
+                        "episode_number": 1,
+                        "title": "Episode 1",
+                        "telegram": current_doc.get("telegram", [])
+                    }]
+                }]
+
+            new_doc = {
                 "tmdb_id": new_tmdb_id,
                 "imdb_id": new_imdb_id,
                 "title": _pick("title"),
@@ -2715,27 +2740,27 @@ class Database:
                 "cast": _pick("cast"),
                 "runtime": _pick("runtime"),
                 "media_type": "tv",
-                "seasons": current_doc.get("seasons", []),
+                "seasons": seasons_list,
                 "updated_on": datetime.utcnow(),
-            })
+            }
 
         identity_filters = []
         if new_imdb_id:
             identity_filters.append({"imdb_id": new_imdb_id})
         identity_filters.append({"tmdb_id": new_tmdb_id})
 
-        existing_other = await collection.find_one({
+        existing_other = await target_collection.find_one({
             "$and": [{"$or": identity_filters}, {"_id": {"$ne": source_id}}]
         })
 
         if existing_other:
-            if collection_name == "movie":
+            if target_media_type == "movie":
                 existing_other["telegram"] = self._merge_telegram_lists(
-                    existing_other.get("telegram", []), current_doc.get("telegram", [])
+                    existing_other.get("telegram", []), new_doc.get("telegram", [])
                 )
             else:
                 existing_other["seasons"] = self._merge_season_lists(
-                    existing_other.get("seasons", []), current_doc.get("seasons", [])
+                    existing_other.get("seasons", []), new_doc.get("seasons", [])
                 )
 
             for field in (
@@ -2743,16 +2768,22 @@ class Database:
                 "description", "poster", "backdrop", "logo", "genres",
                 "cast", "runtime", "media_type",
             ):
-                if field in current_doc:
-                    existing_other[field] = current_doc[field]
+                if field in new_doc:
+                    existing_other[field] = new_doc[field]
             existing_other["updated_on"] = datetime.utcnow()
 
             await collection.delete_one({"_id": source_id})
-            await collection.replace_one({"_id": existing_other["_id"]}, existing_other)
+            await target_collection.replace_one({"_id": existing_other["_id"]}, existing_other)
 
-            updated_doc = await collection.find_one({"_id": existing_other["_id"]})
+            updated_doc = await target_collection.find_one({"_id": existing_other["_id"]})
             return convert_objectid_to_str(updated_doc) if updated_doc else None
-        await collection.replace_one({"_id": source_id}, current_doc)
 
-        updated_doc = await collection.find_one({"_id": source_id})
+        if collection_name != target_collection_name:
+            await collection.delete_one({"_id": source_id})
+            result = await target_collection.insert_one(new_doc)
+            updated_doc = await target_collection.find_one({"_id": result.inserted_id})
+        else:
+            await collection.replace_one({"_id": source_id}, new_doc)
+            updated_doc = await collection.find_one({"_id": source_id})
+
         return convert_objectid_to_str(updated_doc) if updated_doc else None
