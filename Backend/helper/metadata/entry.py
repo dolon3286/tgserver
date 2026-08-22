@@ -249,6 +249,19 @@ def _candidate_entry(source, title, year, imdb_id, tmdb_id, poster, backdrop, su
 async def _resolve_id_candidate(default_id, media_type: str) -> dict | None:
     imdb_id, tmdb_id, _explicit_imdb, use_tmdb = split_default_id(default_id)
 
+    if tmdb_id:
+        details = await tmdb.details(media_type, tmdb_id)
+        if not details:
+            return None
+        r_title, r_year = tmdb.tmdb_title_year(details, media_type)
+        imdb_ext = getattr(getattr(details, "external_ids", None), "imdb_id", None)
+        return _candidate_entry(
+            "tmdb", r_title, r_year or "", imdb_ext, tmdb_id,
+            format_tmdb_image(getattr(details, "poster_path", None)),
+            format_tmdb_image(getattr(details, "backdrop_path", None), "original"),
+            "TMDb", media_type,
+        )
+
     if imdb_id and not use_tmdb:
         imdb_type = "movie" if media_type == "movie" else "tvSeries"
         detail = None
@@ -266,19 +279,6 @@ async def _resolve_id_candidate(default_id, media_type: str) -> dict | None:
         return _candidate_entry(
             "imdb", "", "", imdb_id, None, images["poster"], images["backdrop"],
             "IMDb / Cinemeta", media_type,
-        )
-
-    if tmdb_id:
-        details = await tmdb.details(media_type, tmdb_id)
-        if not details:
-            return None
-        r_title, r_year = tmdb.tmdb_title_year(details, media_type)
-        imdb_ext = getattr(getattr(details, "external_ids", None), "imdb_id", None)
-        return _candidate_entry(
-            "tmdb", r_title, r_year or "", imdb_ext, tmdb_id,
-            format_tmdb_image(getattr(details, "poster_path", None)),
-            format_tmdb_image(getattr(details, "backdrop_path", None), "original"),
-            "TMDb", media_type,
         )
     return None
 
@@ -298,22 +298,6 @@ async def _search_candidates(query: str, media_type: str, year: int | None = Non
     seen: set[tuple[str, str]] = set()
 
     try:
-        imdb_hits = await cinemeta.search_title_multi(query=query, type=imdb_type, limit=limit)
-        for hit in imdb_hits:
-            hid = hit.get("id")
-            if not hid or ("imdb", hid) in seen:
-                continue
-            seen.add(("imdb", hid))
-            images = format_imdb_images(hid)
-            results.append(_candidate_entry(
-                "imdb", hit.get("title", ""), hit.get("year", ""),
-                hid, None, hit.get("poster") or images["poster"], images["backdrop"],
-                "IMDb / Cinemeta", media_type,
-            ))
-    except Exception as e:
-        LOGGER.warning(f"IMDb {media_type} candidate search failed for '{query}': {e}")
-
-    try:
         tmdb_results = await tmdb.raw_search(query, media_type, year if media_type == "movie" else None)
         for item in (tmdb_results or [])[:limit]:
             tid = getattr(item, "id", None)
@@ -330,6 +314,22 @@ async def _search_candidates(query: str, media_type: str, year: int | None = Non
             ))
     except Exception as e:
         LOGGER.warning(f"TMDb {media_type} candidate search failed for '{query}': {e}")
+
+    try:
+        imdb_hits = await cinemeta.search_title_multi(query=query, type=imdb_type, limit=limit)
+        for hit in imdb_hits:
+            hid = hit.get("id")
+            if not hid or ("imdb", hid) in seen:
+                continue
+            seen.add(("imdb", hid))
+            images = format_imdb_images(hid)
+            results.append(_candidate_entry(
+                "imdb", hit.get("title", ""), hit.get("year", ""),
+                hid, None, hit.get("poster") or images["poster"], images["backdrop"],
+                "IMDb / Cinemeta", media_type,
+            ))
+    except Exception as e:
+        LOGGER.warning(f"IMDb {media_type} candidate search failed for '{query}': {e}")
 
     return results[:limit]
 
@@ -421,25 +421,22 @@ async def fetch_selected_tv_metadata(selected_id: str) -> dict | None:
     if not imdb_id and not tmdb_id:
         return None
 
-    imdb_tv = None
-    if imdb_id and not use_tmdb:
+    tv = None
+    if tmdb_id:
+        tv = await tmdb.details("tv", tmdb_id)
+
+    if not tv and imdb_id:
+        # fallback to get tmdb_id via cinemeta
         try:
             imdb_tv = await cinemeta.get_detail(imdb_id=imdb_id, media_type="tvSeries")
-        except Exception:
-            imdb_tv = None
-            use_tmdb = True
-
-    if use_tmdb or not imdb_tv:
-        if not tmdb_id and imdb_tv and imdb_tv.get("moviedb_id"):
-            try:
+            if imdb_tv and imdb_tv.get("moviedb_id"):
                 tmdb_id = int(imdb_tv["moviedb_id"])
-            except Exception:
-                tmdb_id = None
-        if not tmdb_id:
-            return None
-        tv = await tmdb.details("tv", tmdb_id)
-        if not tv:
-            return None
+                tv = await tmdb.details("tv", tmdb_id)
+        except Exception:
+            pass
+
+    if not tv:
+        return None
         first_air = getattr(tv, "first_air_date", None)
         runtime = ""
         if getattr(tv, "episode_run_time", None):

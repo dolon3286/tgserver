@@ -481,6 +481,10 @@ async def resolve_telegram(payload: dict, _: bool = Depends(require_auth)):
 async def manual_add_media(payload: dict, _: bool = Depends(require_auth)):
     return await manual_add_media_api(payload)
 
+@app.put("/api/media/edit-quality")
+async def edit_quality(payload: dict, _: bool = Depends(require_auth)):
+    return await edit_quality_api(payload)
+
 @app.get("/api/media/manual-add/catalogs")
 async def manual_add_catalogs(_: bool = Depends(require_auth)):
     return await list_manual_add_catalogs_api()
