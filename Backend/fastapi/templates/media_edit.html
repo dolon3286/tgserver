@@ -801,11 +801,12 @@
     <div class="absolute inset-0 flex items-end sm:items-center justify-center p-0 sm:p-4">
         <div class="glass-card w-full sm:max-w-xl rounded-t-3xl sm:rounded-3xl max-h-[92dvh] sm:max-h-[90dvh] flex flex-col">
             <div class="flex items-center justify-between gap-3 px-4 sm:px-6 py-4 border-b border-hairline">
-                <h2 class="text-base sm:text-xl font-black text-text">➕ Add Stream</h2>
+                <h2 id="as-modal-title" class="text-base sm:text-xl font-black text-text">➕ Add Stream</h2>
                 <button onclick="closeAddStream()" class="text-text-secondary hover:text-text text-3xl leading-none">&times;</button>
             </div>
 
             <div class="px-4 sm:px-6 py-5 space-y-4 overflow-y-auto flex-1 min-h-0">
+                <input type="hidden" id="as-edit-id">
                 {% if media_type == 'tv' %}
                 <div class="grid grid-cols-2 gap-3">
                     <div>
