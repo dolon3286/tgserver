@@ -114,7 +114,7 @@ from Backend.fastapi.routes.api_routes import (
 )
 from Backend.fastapi.routes.stream_routes import decay_client_failures
 from Backend.fastapi.routes.stream_routes import router as stream_router
-from Backend.fastapi.routes.stremio_routes import router as stremio_router
+from Backend.fastapi.routes.emby_routes import router as emby_router
 from Backend.fastapi.routes.template_routes import (
     admin_access_page,
     admin_dashboard_page,
@@ -131,7 +131,6 @@ from Backend.fastapi.routes.template_routes import (
     public_status_page,
     settings_page,
     set_theme,
-    stremio_guide_page,
     tools_page,
 )
 from Backend.fastapi.security.credentials import require_auth
@@ -167,7 +166,7 @@ async def _startup():
 
 #----- Streaming and Stremio routers
 app.include_router(stream_router)
-app.include_router(stremio_router)
+app.include_router(emby_router)
 
 
 #----- Public routes (no authentication)
@@ -191,9 +190,6 @@ async def set_theme_route(request: Request, theme: str = Form(...)):
 async def public_status(request: Request):
     return await public_status_page(request)
 
-@app.get("/stremio", response_class=HTMLResponse)
-async def stremio_guide(request: Request):
-    return await stremio_guide_page(request)
 
 @app.get("/open/{app_name}/{media_type}/{content_id}", response_class=HTMLResponse)
 async def open_in_app(app_name: str, media_type: str, content_id: str):
@@ -680,7 +676,7 @@ async def admin_backup_export(_: bool = Depends(require_auth)):
     data = await export_config_api()
     return JSONResponse(
         content=data,
-        headers={"Content-Disposition": 'attachment; filename="telegram-stremio-backup.json"'},
+        headers={"Content-Disposition": 'attachment; filename="telegram-emby-backup.json"'},
     )
 
 @app.post("/api/admin/backup/import")

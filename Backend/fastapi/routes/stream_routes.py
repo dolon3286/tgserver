@@ -409,6 +409,8 @@ async def virtual_media_streamer(request: Request, parts_payload: list, token: s
     asyncio.create_task(track_usage(stream_id, token, token_data))
 
     file_name, mime_type = _resolve_filename_mime(parts[0]["file_id"])
+    if file_name.endswith(".001"):
+        file_name = file_name[:-4]
     common_headers, status = _build_stream_headers(mime_type, file_name, req_length, range_header, start, end, file_size)
 
     if request.method == "HEAD":
@@ -526,6 +528,8 @@ async def global_virtual_media_streamer(request: Request, parts_payload: list, t
     asyncio.create_task(track_usage(stream_id, token, token_data))
 
     file_name, mime_type = _resolve_filename_mime(parts[0]["file_id"])
+    if file_name.endswith(".001"):
+        file_name = file_name[:-4]
     headers, status = _build_stream_headers(mime_type, file_name, req_length, range_header, start, end, file_size)
 
     if request.method == "HEAD":
