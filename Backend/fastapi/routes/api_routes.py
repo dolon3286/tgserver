@@ -17,7 +17,7 @@ from pyrogram.types import ChatPrivileges
 import Backend
 from Backend import StartTime, __version__, db
 from Backend.fastapi.routes.stream_routes import _streamer_by_client
-from Backend.fastapi.routes.stremio_routes import invalidate_membership_cache
+from Backend.helper.utils import invalidate_membership_cache
 from Backend.helper.analytics import get_activity_overview
 from Backend.helper.auto_catalog import (
     get_auto_catalog_settings,

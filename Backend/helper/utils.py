@@ -75,3 +75,6 @@ async def track_usage(stream_id: str, token: str, token_data: dict):
     except asyncio.CancelledError:
         _collect_stream_bytes(stream_id, seen)
         await flush(sum(seen.values()))
+
+def invalidate_membership_cache(user_id: int | None = None) -> None:
+    pass

@@ -209,11 +209,6 @@ async def public_status_page(request: Request):
     return templates.TemplateResponse("public_status.html", ctx)
 
 
-#----- Stremio setup guide (no auth)
-async def stremio_guide_page(request: Request):
-    ctx = _base_context(request)
-    ctx["is_authenticated"] = is_authenticated(request)
-    return templates.TemplateResponse("stremio_guide.html", ctx)
 
 
 #----- Subscription management shell
